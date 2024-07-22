@@ -1,5 +1,6 @@
 import {
   Button,
+  Flex,
   HStack,
   IconButton,
   Input,
@@ -18,6 +19,7 @@ import { io, Socket } from "socket.io-client";
 import Chat from "./Chat";
 import FileSender from "./FileSender";
 import FileReceiver from "./FileReceiver";
+import { LuScreenShare, LuScreenShareOff } from "react-icons/lu";
 
 const VideoCall: React.FC = () => {
   const socket = io("http://localhost:5000");
@@ -33,6 +35,7 @@ const VideoCall: React.FC = () => {
   const [name, setName] = useState<string>("");
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
+  const [screenShareEnabled, setScreenShareEnabled] = useState(false);
   const [messages, setMessages] = useState<{ user: string; message: string }[]>(
     []
   );
@@ -41,6 +44,7 @@ const VideoCall: React.FC = () => {
   >([]);
   const myVideo = useRef<HTMLVideoElement | null>(null);
   const userVideo = useRef<HTMLVideoElement | null>(null);
+  const screenShare = useRef<HTMLVideoElement | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const toast = useToast();
@@ -107,6 +111,49 @@ const VideoCall: React.FC = () => {
       socket.off("callUser");
       socket.off("callAccepted");
       socket.off("receiveFile");
+    };
+  }, []);
+
+  const enableScreenShare = async () => {
+    if (!screenShareEnabled) {
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true,
+        });
+        if (screenShare.current) {
+          screenShare.current.srcObject = stream;
+          stream.getTracks().forEach((track) => {
+            track.onended = () => {
+              if (screenShare.current) screenShare.current.srcObject = null;
+              setScreenShareEnabled(false);
+            };
+          });
+        }
+        setScreenShareEnabled(true);
+      } catch (error) {
+        console.error("Error accessing display media:", error);
+      }
+    } else {
+      if (screenShare.current) {
+        const stream = screenShare.current.srcObject as MediaStream;
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+          screenShare.current.srcObject = null;
+        }
+      }
+      setScreenShareEnabled(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (screenShare.current) {
+        const stream = screenShare.current.srcObject as MediaStream;
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+        }
+      }
     };
   }, []);
 
@@ -282,12 +329,21 @@ const VideoCall: React.FC = () => {
       <HStack spacing={4} w="100%" justify="center">
         <VStack spacing={4} w="50%">
           <VStack>
-            <video
-              ref={myVideo}
-              autoPlay
-              muted
-              style={{ width: "100%", borderRadius: "8px" }}
-            />
+            <Flex>
+              <video
+                ref={myVideo}
+                autoPlay
+                muted
+                style={{ width: "100%", borderRadius: "8px" }}
+              />
+
+              <video
+                ref={screenShare}
+                autoPlay
+                style={{ width: "100%", borderRadius: "8px" }}
+              />
+            </Flex>
+
             <HStack spacing={4}>
               <IconButton
                 aria-label="toggle audio"
@@ -298,6 +354,13 @@ const VideoCall: React.FC = () => {
                 aria-label="toggle video"
                 icon={videoEnabled ? <FaVideo /> : <FaVideoSlash />}
                 onClick={toggleVideo}
+              />
+              <IconButton
+                aria-label="Screen Share"
+                onClick={enableScreenShare}
+                icon={
+                  screenShareEnabled ? <LuScreenShareOff /> : <LuScreenShare />
+                }
               />
             </HStack>
           </VStack>
