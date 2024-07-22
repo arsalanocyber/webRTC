@@ -1,7 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
-import { io } from "socket.io-client";
 import {
-  Box,
   Button,
   HStack,
   IconButton,
@@ -10,31 +7,42 @@ import {
   VStack,
   useToast,
 } from "@chakra-ui/react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   FaMicrophone,
   FaMicrophoneSlash,
   FaVideo,
   FaVideoSlash,
 } from "react-icons/fa";
+import { io, Socket } from "socket.io-client";
+import Chat from "./Chat";
+import FileSender from "./FileSender";
+import FileReceiver from "./FileReceiver";
 
 const VideoCall: React.FC = () => {
   const socket = io("http://localhost:5000");
-  const [me, setMe] = useState<string | null>(null); // Represents the user's ID
-  const [stream, setStream] = useState<MediaStream | undefined>(); // Represents the local video stream
-  const [receivingCall, setReceivingCall] = useState<boolean>(false); // Indicates if a call is being received
-  const [caller, setCaller] = useState<string | null>(null); // Represents the ID of the caller
+  const [me, setMe] = useState<string | null>(null);
+  const [stream, setStream] = useState<MediaStream | undefined>();
+  const [receivingCall, setReceivingCall] = useState<boolean>(false);
+  const [caller, setCaller] = useState<string | null>(null);
   const [callerSignal, setCallerSignal] =
-    useState<RTCSessionDescriptionInit | null>(null); // Represents the signal data from the caller
-  const [callAccepted, setCallAccepted] = useState<boolean>(false); // Indicates if the call has been accepted
-  const [idToCall, setIdToCall] = useState<string>(""); // Represents the ID of the user to call
-  const [callEnded, setCallEnded] = useState<boolean>(false); // Indicates if the call has ended
-  const [name, setName] = useState<string>(""); // Represents the user's name
+    useState<RTCSessionDescriptionInit | null>(null);
+  const [callAccepted, setCallAccepted] = useState<boolean>(false);
+  const [idToCall, setIdToCall] = useState<string>("");
+  const [callEnded, setCallEnded] = useState<boolean>(false);
+  const [name, setName] = useState<string>("");
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
-
+  const [messages, setMessages] = useState<{ user: string; message: string }[]>(
+    []
+  );
+  const [receivedFiles, setReceivedFiles] = useState<
+    { filename: string; file: ArrayBuffer }[]
+  >([]);
   const myVideo = useRef<HTMLVideoElement | null>(null);
   const userVideo = useRef<HTMLVideoElement | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const toast = useToast();
 
   const configuration = {
@@ -46,7 +54,6 @@ const VideoCall: React.FC = () => {
   };
 
   useEffect(() => {
-    // Access user media
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
       .then((stream) => {
@@ -57,7 +64,6 @@ const VideoCall: React.FC = () => {
       })
       .catch((error) => console.error("Error accessing user media:", error));
 
-    // Socket event listeners
     socket.on("me", (id: string) => {
       setMe(id);
     });
@@ -89,10 +95,18 @@ const VideoCall: React.FC = () => {
       }
     });
 
+    // Handle file receiving
+    socket.on("receiveFile", (data) => {
+      console.log("Received file data:", data);
+      const { file, filename } = data;
+      setReceivedFiles((prevFiles) => [...prevFiles, { filename, file }]);
+    });
+
     return () => {
       socket.off("me");
       socket.off("callUser");
       socket.off("callAccepted");
+      socket.off("receiveFile");
     };
   }, []);
 
@@ -105,6 +119,16 @@ const VideoCall: React.FC = () => {
     stream
       .getTracks()
       .forEach((track) => peerConnection.addTrack(track, stream));
+
+    const dataChannel = peerConnection.createDataChannel("chat");
+    dataChannelRef.current = dataChannel;
+
+    dataChannel.onmessage = (event) => {
+      setMessages((prevMessages) => [
+        ...prevMessages,
+        { user: name, message: event.data },
+      ]);
+    };
 
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
@@ -137,6 +161,18 @@ const VideoCall: React.FC = () => {
     stream
       .getTracks()
       .forEach((track) => peerConnection.addTrack(track, stream));
+
+    peerConnection.ondatachannel = (event) => {
+      const dataChannel = event.channel;
+      dataChannelRef.current = dataChannel;
+
+      dataChannel.onmessage = (event) => {
+        setMessages((prevMessages) => [
+          ...prevMessages,
+          { user: name, message: event.data },
+        ]);
+      };
+    };
 
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
@@ -201,86 +237,87 @@ const VideoCall: React.FC = () => {
     }
   };
 
-  return (
-    <VStack spacing={4} p={2} align="center">
-      <Text fontSize="xl" fontWeight="bold">
-        Video Call
-      </Text>
-      <VStack p={2} bg={"gray.100"} rounded={"lg"}>
-        <Text fontSize={"md"} fontWeight={"medium"} color={"gray.600"}>
-          My Video
-        </Text>
-        <video
-          ref={myVideo}
-          autoPlay
-          muted
-          style={{ width: "300px", height: "200px", borderRadius: "8px" }}
-        />
-        <HStack spacing={4} mt={4}>
-          <IconButton
-            aria-label="Toggle Microphone"
-            icon={audioEnabled ? <FaMicrophone /> : <FaMicrophoneSlash />}
-            onClick={toggleAudio}
-            colorScheme={audioEnabled ? "gray" : "red"}
-          />
-          <IconButton
-            aria-label="Toggle Camera"
-            icon={videoEnabled ? <FaVideo /> : <FaVideoSlash />}
-            onClick={toggleVideo}
-            colorScheme={videoEnabled ? "gray" : "red"}
-          />
-        </HStack>
-      </VStack>
-      {userVideo && (
-        <VStack p={2} bg={"gray.200"} rounded={"lg"}>
-          <Text>Other User's Video</Text>
+  const handleSendMessage = (message: string) => {
+    if (dataChannelRef.current) {
+      dataChannelRef.current.send(message);
+      setMessages((prevMessages) => [...prevMessages, { user: "Me", message }]);
+    }
+  };
 
+  return (
+    <VStack spacing={4} p={4} align="center">
+      <HStack spacing={4}>
+        <Button onClick={copyIdToClipboard}>Copy ID</Button>
+        {!callAccepted && !callEnded && (
+          <HStack spacing={4}>
+            <Input
+              placeholder="Enter ID to call..."
+              value={idToCall}
+              onChange={(e) => setIdToCall(e.target.value)}
+            />
+            <Button onClick={() => callUser(idToCall)} colorScheme="blue">
+              Call
+            </Button>
+          </HStack>
+        )}
+        {callAccepted && !callEnded && (
+          <Button onClick={leaveCall} colorScheme="red">
+            End Call
+          </Button>
+        )}
+      </HStack>
+
+      {receivingCall && !callAccepted && (
+        <HStack spacing={4}>
+          <Text>{caller} is calling...</Text>
+          <Button onClick={answerCall} colorScheme="blue">
+            Answer
+          </Button>
+          <Button onClick={() => setReceivingCall(false)} colorScheme="red">
+            Decline
+          </Button>
+        </HStack>
+      )}
+
+      <HStack spacing={4} w="100%" justify="center">
+        <VStack spacing={4} w="50%">
+          <VStack>
+            <video
+              ref={myVideo}
+              autoPlay
+              muted
+              style={{ width: "100%", borderRadius: "8px" }}
+            />
+            <HStack spacing={4}>
+              <IconButton
+                aria-label="toggle audio"
+                icon={audioEnabled ? <FaMicrophone /> : <FaMicrophoneSlash />}
+                onClick={toggleAudio}
+              />
+              <IconButton
+                aria-label="toggle video"
+                icon={videoEnabled ? <FaVideo /> : <FaVideoSlash />}
+                onClick={toggleVideo}
+              />
+            </HStack>
+          </VStack>
           <video
             ref={userVideo}
             autoPlay
-            style={{ width: "300px", height: "200px", borderRadius: "8px" }}
+            style={{ width: "100%", borderRadius: "8px" }}
           />
         </VStack>
-      )}
+      </HStack>
 
-      <VStack spacing={2} align="start">
-        <Input
-          placeholder="Enter your username"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <Input
-          placeholder="ID to call"
-          value={idToCall}
-          onChange={(e) => setIdToCall(e.target.value)}
-        />
-        <Button
-          colorScheme="teal"
-          onClick={() => callUser(idToCall)}
-          isDisabled={!idToCall}
-        >
-          Call User
-        </Button>
-        <Button colorScheme="blue" onClick={copyIdToClipboard} isDisabled={!me}>
-          Copy ID
-        </Button>
-      </VStack>
-      {receivingCall && !callAccepted && (
-        <VStack spacing={2}>
-          <Text fontSize="md">Incoming call from {name}</Text>
-          <Button colorScheme="green" onClick={answerCall}>
-            Answer Call
-          </Button>
-          <Button colorScheme="red" onClick={() => setReceivingCall(false)}>
-            Decline Call
-          </Button>
-        </VStack>
-      )}
-      {callAccepted && (
-        <Button colorScheme="red" onClick={leaveCall}>
-          End Call
-        </Button>
-      )}
+      <Chat
+        messages={messages}
+        sendMessage={handleSendMessage}
+        userName={name}
+        setUserName={setName}
+      />
+
+      <FileSender socket={socket} />
+      <FileReceiver socket={socket} allFiles={receivedFiles} />
     </VStack>
   );
 };
