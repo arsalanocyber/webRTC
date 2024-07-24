@@ -1,3 +1,4 @@
+import { Button } from "@chakra-ui/react";
 import React, { useEffect, useRef, useState } from "react";
 import io, { Socket } from "socket.io-client";
 
@@ -226,11 +227,15 @@ const VideoCall: React.FC = () => {
           />
         ))}
       </div>
-      {!inCall && <button onClick={handleCall}>Start Call</button>}
+      {!inCall && (
+        <Button my={2} onClick={handleCall}>
+          Start Call
+        </Button>
+      )}
       {incomingCall && (
-        <button onClick={handleAcceptCall}>
+        <Button m={2} onClick={handleAcceptCall}>
           Accept Call from {incomingCall}
-        </button>
+        </Button>
       )}
     </div>
   );

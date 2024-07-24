@@ -3,7 +3,7 @@ import Home from "./components/Home";
 import Test from "./components/Test";
 import VideoCall from "./components/VideoCall";
 import Login from "./components/Login";
-import GroupCall from "./components/GroupCall";
+import VideoCallWithScreenShare from "./components/VideoCallWithScreenShare";
 import GroupVideoCall from "./components/GroupVideoCall";
 
 const App = () => {
@@ -15,7 +15,10 @@ const App = () => {
         <Route path="/test" element={<Test />} />
         <Route path="/groupcalltest" element={<GroupVideoCall />} />
         <Route path="/videocall" element={<VideoCall />} />
-        <Route path="/groupcall" element={<GroupCall />} />
+        <Route
+          path="/videocall-screenshare"
+          element={<VideoCallWithScreenShare />}
+        />
       </Routes>
     </Router>
   );
