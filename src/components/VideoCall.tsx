@@ -376,7 +376,6 @@ const VideoCall: React.FC = () => {
         messages={messages}
         sendMessage={handleSendMessage}
         userName={name}
-        setUserName={setName}
       />
 
       <FileSender socket={socket} />

@@ -16,9 +16,9 @@ import {
   FaVideoSlash,
 } from "react-icons/fa";
 import { ImCross } from "react-icons/im";
-
 import { LuScreenShare, LuScreenShareOff } from "react-icons/lu";
 import { io } from "socket.io-client";
+import Chat from "./Chat";
 
 const VideoCallWithScreenShare: React.FC = () => {
   const socket = io("http://localhost:5000");
@@ -40,7 +40,12 @@ const VideoCallWithScreenShare: React.FC = () => {
   const userVideo = useRef<HTMLVideoElement | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const toast = useToast();
+  const [messages, setMessages] = useState<{ user: string; message: string }[]>(
+    []
+  );
+  const [newName, setNewName] = useState<string>("");
 
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const configuration = {
     iceServers: [
       {
@@ -61,6 +66,7 @@ const VideoCallWithScreenShare: React.FC = () => {
       .catch((error) => console.error("Error accessing user media:", error));
 
     socket.on("me", (id: string) => {
+      console.log(id);
       setMe(id);
     });
 
@@ -73,7 +79,7 @@ const VideoCallWithScreenShare: React.FC = () => {
       }) => {
         setReceivingCall(true);
         setCaller(data.from);
-        setName(data.name);
+        setName(data.name); // Ensure name is being set
         setCallerSignal(data.signal);
       }
     );
@@ -119,6 +125,16 @@ const VideoCallWithScreenShare: React.FC = () => {
       }
     };
 
+    const dataChannel = peerConnection.createDataChannel("chat");
+    dataChannelRef.current = dataChannel;
+
+    dataChannel.onmessage = (event) => {
+      setMessages((prevMessages) => [
+        ...prevMessages,
+        { user: newName || "User 1", message: event.data },
+      ]);
+    };
+
     peerConnection.ontrack = (event) => {
       if (userVideo.current) {
         userVideo.current.srcObject = event.streams[0];
@@ -149,6 +165,18 @@ const VideoCallWithScreenShare: React.FC = () => {
       }
     };
 
+    peerConnection.ondatachannel = (event) => {
+      const dataChannel = event.channel;
+      dataChannelRef.current = dataChannel;
+
+      dataChannel.onmessage = (event) => {
+        setMessages((prevMessages) => [
+          ...prevMessages,
+          { user: newName || "User 2", message: event.data },
+        ]);
+      };
+    };
+
     peerConnection.ontrack = (event) => {
       if (userVideo.current) {
         userVideo.current.srcObject = event.streams[0];
@@ -162,6 +190,7 @@ const VideoCallWithScreenShare: React.FC = () => {
         peerConnection.setLocalDescription(answer);
         socket.emit("answerCall", { signal: answer, to: caller });
       });
+
     setReceivingCall(false);
     setIsCallStarted(true);
   };
@@ -193,12 +222,10 @@ const VideoCallWithScreenShare: React.FC = () => {
         video: true,
       });
 
-      // Update local video stream
       if (myVideo.current) {
         myVideo.current.srcObject = screenStream;
       }
 
-      // Replace peer connection tracks
       const videoTrack = screenStream.getVideoTracks()[0];
       if (peerConnectionRef.current) {
         peerConnectionRef.current.getSenders().forEach((sender) => {
@@ -209,7 +236,6 @@ const VideoCallWithScreenShare: React.FC = () => {
         setIsScreenSharing(true);
 
         videoTrack.onended = () => {
-          // Revert to webcam when screensharing ends
           if (stream) {
             const videoTrack = stream.getVideoTracks()[0];
             if (myVideo.current) {
@@ -271,6 +297,20 @@ const VideoCallWithScreenShare: React.FC = () => {
     }
   };
 
+  const handleSendMessage = (message: string) => {
+    if (dataChannelRef.current) {
+      dataChannelRef.current.send(message);
+      setMessages((prevMessages) => [...prevMessages, { user: "Me", message }]);
+    }
+  };
+
+  const handleNameChange = () => {
+    if (newName.trim()) {
+      console.log("Setting new name:", newName); // Debugging line
+      setNewName(newName);
+    }
+  };
+
   return (
     <VStack
       spacing={6}
@@ -280,6 +320,26 @@ const VideoCallWithScreenShare: React.FC = () => {
       borderRadius="md"
       boxShadow="md"
     >
+      <HStack spacing={2} mb={4}>
+        <Input
+          placeholder="Enter your name..."
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          bg="gray.700"
+          color="white"
+          border="none"
+          borderRadius="md"
+          _placeholder={{ color: "gray.400" }}
+        />
+        <Button
+          onClick={handleNameChange}
+          colorScheme="blue"
+          size="md"
+          disabled={!newName.trim()}
+        >
+          Set Name
+        </Button>
+      </HStack>
       {!isCallStarted && (
         <HStack spacing={6} align="center">
           {!isCallStarted && !callAccepted && (
@@ -398,6 +458,12 @@ const VideoCallWithScreenShare: React.FC = () => {
           bg={"red.600"}
         />
       </HStack>
+
+      <Chat
+        messages={messages}
+        sendMessage={handleSendMessage}
+        userName={newName}
+      />
     </VStack>
   );
 };
