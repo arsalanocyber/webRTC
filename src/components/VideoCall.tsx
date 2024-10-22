@@ -5,8 +5,8 @@ import {
   IconButton,
   Input,
   Text,
-  VStack,
   useToast,
+  VStack,
 } from "@chakra-ui/react";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -15,11 +15,11 @@ import {
   FaVideo,
   FaVideoSlash,
 } from "react-icons/fa";
-import { io, Socket } from "socket.io-client";
-import Chat from "./Chat";
-import FileSender from "./FileSender";
-import FileReceiver from "./FileReceiver";
 import { LuScreenShare, LuScreenShareOff } from "react-icons/lu";
+import { io } from "socket.io-client";
+import Chat from "./Chat";
+import FileReceiver from "./FileReceiver";
+import FileSender from "./FileSender";
 
 const VideoCall: React.FC = () => {
   const socket = io("http://localhost:5000");
