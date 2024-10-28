@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { VideoMediaStream } from "./video-media-stream";
 
-const socket = io("http://localhost:5000");
+const socket = io("https://arslan-server.local.ocyber.work");
 
 const TestStream: React.FC = () => {
     const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -11,8 +11,17 @@ const TestStream: React.FC = () => {
     const [remoteStreams, setRemoteStreams] = useState<MediaStream[]>([]);
 
     useEffect(() => {
-        peerConnection.current = new RTCPeerConnection();
+        peerConnection.current = new RTCPeerConnection({
+            iceServers: [
+                {
+                    urls: 'turn:192.158.29.39:3478?transport=udp',
+                    username: '28224511:1379330808',
+                    credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA='
+                },
+            ]
+        });
 
+        // Get local video and audio stream
         navigator.mediaDevices
             .getUserMedia({ video: true, audio: true })
             .then((stream) => {
@@ -24,62 +33,77 @@ const TestStream: React.FC = () => {
                 });
             });
 
+        // Handle incoming remote stream tracks
         peerConnection.current.ontrack = (event) => {
             console.log("event streams", event.streams);
             setRemoteStreams([...event.streams]);
         };
 
+        // ICE Candidate handling
         peerConnection.current.onicecandidate = (event) => {
             if (event.candidate) {
                 socket.emit("ice-candidate", event.candidate);
             }
         };
 
+        // When receiving an offer
         socket.on("offer", async (offer) => {
-            console.log({ offer });
-            await peerConnection.current?.setRemoteDescription(
-                new RTCSessionDescription(offer)
-            );
-            const answer = await peerConnection.current?.createAnswer();
-            await peerConnection.current?.setLocalDescription(answer);
-            socket.emit("answer", answer);
+            console.log("Received offer:", offer);
+            if (peerConnection.current?.signalingState === "stable") {
+                await peerConnection.current?.setRemoteDescription(
+                    new RTCSessionDescription(offer)
+                );
+                const answer = await peerConnection.current?.createAnswer();
+                await peerConnection.current?.setLocalDescription(answer);
+                socket.emit("answer", answer);
+            }
         });
 
+        // When receiving an answer
         socket.on("answer", async (answer) => {
-            console.log({ answer });
-            await peerConnection.current?.setRemoteDescription(
-                new RTCSessionDescription(answer)
-            );
+            console.log("Received answer:", answer);
+            if (peerConnection.current?.signalingState === "have-local-offer") {
+                await peerConnection.current?.setRemoteDescription(
+                    new RTCSessionDescription(answer)
+                );
+            }
         });
 
+        // ICE candidate from remote peer
         socket.on("ice-candidate", async (candidate) => {
-            console.log({ candidate });
-            await peerConnection.current?.addIceCandidate(
-                new RTCIceCandidate(candidate)
-            );
+            console.log("Received ICE candidate:", candidate);
+            try {
+                await peerConnection.current?.addIceCandidate(
+                    new RTCIceCandidate(candidate)
+                );
+            } catch (error) {
+                console.error("Error adding received ICE candidate", error);
+            }
         });
 
         return () => {
             socket.off();
             peerConnection.current?.close();
         };
-    }, [socket]);
+    }, []);
 
+    // Create an offer for the call
     const createOffer = async () => {
-        const offer = await peerConnection.current?.createOffer();
-        await peerConnection.current?.setLocalDescription(offer);
-        socket.emit("offer", offer);
-        setIsCallActive(true);
+        if (peerConnection.current) {
+            const offer = await peerConnection.current.createOffer();
+            await peerConnection.current.setLocalDescription(offer);
+            socket.emit("offer", offer);
+            setIsCallActive(true);
+        }
     };
 
-    console.log({remoteStreams})
     return (
         <div>
             <video ref={localVideoRef} autoPlay playsInline muted />
-            {remoteStreams.map((stream) => (
-                <>
+            {remoteStreams.map((stream, index) => (
+                <div key={index}>
                     <VideoMediaStream mediaStream={stream} />
-                </>
+                </div>
             ))}
             {!isCallActive && <button onClick={createOffer}>Call</button>}
         </div>
